@@ -1,17 +1,17 @@
 import tensorflow as tf
-from transformers import TFAutoModelForMaskedLM, AutoTokenizer
+from transformers import TFAutoModel, AutoTokenizer
 from pathlib import Path
-from transformers import TFTrainer, TFTrainingArguments  # Dodajemy importy dla TFTrainer i TFTrainingArguments
+from transformers import TFTrainer, TFTrainingArguments
 
 # Ścieżka do katalogu z danymi treningowymi
-data_directory = "./corpus"
+data_directory = "/home/ppirog/projects/ancient-greek-A100/corpus_mini"
 
 # Pobierz listę plików tekstowych w katalogu i jego podkatalogach
 paths = [str(x) for x in Path(data_directory).glob("**/*.txt")]
 
 # Inicjalizacja modelu RoBERTa i jego tokenizera
 model_name = 'bert-base-cased'  # Możesz zmienić na odpowiednią wersję modelu RoBERTa
-model = TFAutoModelForMaskedLM.from_pretrained(model_name)
+model = TFAutoModel.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 # Przygotowanie danych treningowych
@@ -23,11 +23,20 @@ for path in paths:
         input_texts.append(file.read())
 
 # Tokenizacja i kodowanie danych treningowych
-inputs = tokenizer(input_texts, padding=True, truncation=True, return_tensors="tf")
+max_seq_length = 512
 
-# Utworzenie datasetu TensorFlow
+# Funkcja do przycinania lub uzupełniania sekwencji do maksymalnej długości
+def pad_or_truncate_sequence(input_ids):
+    if len(input_ids) > max_seq_length:
+        input_ids = input_ids[:max_seq_length]  # Przyciąć do maksymalnej długości
+    return input_ids
+
+# Tokenizacja i kodowanie danych treningowych
+inputs = tokenizer(input_texts, padding='max_length', truncation=True, max_length=max_seq_length, return_tensors="tf")
+
 dataset = tf.data.Dataset.from_tensor_slices(inputs)
-dataset = dataset.shuffle(100).batch(4)
+dataset = dataset.map(lambda x: {'input_ids': pad_or_truncate_sequence(x['input_ids']), 'attention_mask': x['attention_mask']})
+dataset = dataset.shuffle(100).padded_batch(4, padded_shapes={'input_ids': [max_seq_length], 'attention_mask': [max_seq_length]}, drop_remainder=True)
 
 # Parametry treningowe
 learning_rate = 1e-5
